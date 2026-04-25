@@ -2,12 +2,15 @@
 
 const { v4: uuidv4 } = require('uuid');
 const http = require('http');
+const https = require('https');
 const calculateRisk = require('../riskEngine');
 const store = require('../store');
 
 const ALERT_THRESHOLD = 70;
 const ML_SERVICE_HOST = process.env.ML_HOST || 'localhost';
-const ML_SERVICE_PORT = process.env.ML_PORT || 5001;
+const isLocal = ML_SERVICE_HOST === 'localhost' || ML_SERVICE_HOST === '127.0.0.1';
+const ML_SERVICE_PORT = process.env.ML_PORT || (isLocal ? 5001 : 443);
+const ML_SERVICE_PROTOCOL = process.env.ML_PROTOCOL || (isLocal ? 'http' : 'https');
 
 /**
  * Call the Python ML microservice for XGBoost fraud prediction.
@@ -38,7 +41,8 @@ function callMLService(txn) {
       },
     };
 
-    const req = http.request(options, (res) => {
+    const client = ML_SERVICE_PROTOCOL === 'https' ? https : http;
+    const req = client.request(options, (res) => {
       let data = '';
       res.on('data', (chunk) => (data += chunk));
       res.on('end', () => {
@@ -50,8 +54,8 @@ function callMLService(txn) {
       });
     });
 
-    req.on('error', () => resolve(null));
-    req.setTimeout(2000, () => { req.destroy(); resolve(null); });
+    req.on('error', (e) => { console.error('[ML] Error:', e.message); resolve(null); });
+    req.setTimeout(5000, () => { console.error('[ML] Timeout'); req.destroy(); resolve(null); });
     req.write(payload);
     req.end();
   });
